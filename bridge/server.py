@@ -301,6 +301,43 @@ class UiTraceEventRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class StartWorkflowRunRequest(BaseModel):
+    workflow_id: str
+    sprint_id: str | None = None
+    roadmap_id: str | None = None
+    task_id: str | None = None
+    brief_document_id: str | None = None
+    source_session_id: str | None = None
+
+
+class EmitFindingRequest(BaseModel):
+    workflow_run_id: str
+    workflow_stage_id: str
+    emitted_by_persona_slug: str
+    severity: str
+    verdict: str
+    title: str
+    body: str
+    preserved_artifact_ids: list[str] | None = None
+    implicates_artifact_ids: list[str] | None = None
+    root_cause_hint: str | None = None
+
+
+class AdvanceStageRequest(BaseModel):
+    workflow_run_id: str
+    actor_persona_slug: str
+    note: str | None = None
+
+
+class PinPersonaRequest(BaseModel):
+    workflow_run_id: str
+    workflow_stage_id: str
+    persona_slug: str
+    authority: str
+    pilot_pinned: bool = True
+    selected_basis: str | None = None
+
+
 def _desktop_get_clipboard() -> str:
     result = subprocess.run(["pbpaste"], capture_output=True)
     return result.stdout.decode("utf-8", errors="replace")
@@ -803,6 +840,150 @@ def build_swarm_vpn_bootstrap(req: SwarmVPNBootstrapRequest, _: None = Depends(_
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DewDrops workflow (Hearth/Dolt-backed)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/workflow/runs")
+def list_workflow_runs(
+    sprint_id: str | None = None,
+    limit: int = 20,
+    _: None = Depends(_require_pairing_token),
+):
+    """List active workflow runs from Hearth's dewdrops schema."""
+    try:
+        runs = runtime.list_active_workflow_runs(sprint_id=sprint_id, limit=limit)
+        return {"ok": True, "runs": runs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/workflow/runs")
+def start_workflow_run(req: StartWorkflowRunRequest, _: None = Depends(_require_pairing_token)):
+    """Create a new workflow run with rule-floor fleet seeded from defaults."""
+    try:
+        run = runtime.start_workflow_run(
+            workflow_id=req.workflow_id,
+            sprint_id=req.sprint_id,
+            roadmap_id=req.roadmap_id,
+            task_id=req.task_id,
+            brief_document_id=req.brief_document_id,
+            source_session_id=req.source_session_id,
+        )
+        return {"ok": True, "run": run}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/workflow/runs/{workflow_run_id}/fleet")
+def get_workflow_run_fleet(workflow_run_id: str, _: None = Depends(_require_pairing_token)):
+    """Return the attached fleet for a workflow run (v_fleet_manifest)."""
+    try:
+        fleet = runtime.get_workflow_fleet(workflow_run_id)
+        return {"ok": True, "fleet": fleet}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/workflow/runs/{workflow_run_id}/findings")
+def get_workflow_run_findings(
+    workflow_run_id: str,
+    open_only: bool = True,
+    _: None = Depends(_require_pairing_token),
+):
+    """Return findings for a workflow run (open by default)."""
+    try:
+        findings = runtime.get_workflow_findings(workflow_run_id, open_only=open_only)
+        return {"ok": True, "findings": findings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/workflow/runs/{workflow_run_id}/findings")
+def emit_workflow_finding(
+    workflow_run_id: str,
+    req: EmitFindingRequest,
+    _: None = Depends(_require_pairing_token),
+):
+    """Emit a finding against a run/stage. Actor must be attached to the fleet."""
+    if req.workflow_run_id != workflow_run_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow_run_id in path and body must match.",
+        )
+    try:
+        finding = runtime.emit_workflow_finding(
+            workflow_run_id=req.workflow_run_id,
+            workflow_stage_id=req.workflow_stage_id,
+            emitted_by_persona_slug=req.emitted_by_persona_slug,
+            severity=req.severity,
+            verdict=req.verdict,
+            title=req.title,
+            body=req.body,
+            preserved_artifact_ids=req.preserved_artifact_ids,
+            implicates_artifact_ids=req.implicates_artifact_ids,
+            root_cause_hint=req.root_cause_hint,
+        )
+        return {"ok": True, "finding": finding}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/workflow/runs/{workflow_run_id}/advance")
+def advance_workflow_stage(
+    workflow_run_id: str,
+    req: AdvanceStageRequest,
+    _: None = Depends(_require_pairing_token),
+):
+    """Advance the run to its next stage; mark completed when past final stage."""
+    if req.workflow_run_id != workflow_run_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow_run_id in path and body must match.",
+        )
+    try:
+        run = runtime.advance_workflow_stage(
+            workflow_run_id=req.workflow_run_id,
+            actor_persona_slug=req.actor_persona_slug,
+            note=req.note,
+        )
+        return {"ok": True, "run": run}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/workflow/runs/{workflow_run_id}/pin")
+def pin_persona_to_workflow_run(
+    workflow_run_id: str,
+    req: PinPersonaRequest,
+    _: None = Depends(_require_pairing_token),
+):
+    """Pin a persona to a run/stage with pilot override authority."""
+    if req.workflow_run_id != workflow_run_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow_run_id in path and body must match.",
+        )
+    try:
+        fleet_row = runtime.pin_persona_to_run(
+            workflow_run_id=req.workflow_run_id,
+            workflow_stage_id=req.workflow_stage_id,
+            persona_slug=req.persona_slug,
+            authority=req.authority,
+            pilot_pinned=req.pilot_pinned,
+            selected_basis=req.selected_basis,
+        )
+        return {"ok": True, "fleet_row": fleet_row}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
