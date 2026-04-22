@@ -2464,6 +2464,103 @@ class ButlerRuntime:
     def list_security_events(self, limit: int = 50) -> list[dict]:
         return self.store.load_jsonl("security_events.jsonl", limit=limit)
 
+    # ──────────────────────────────────────────────────────────────────────
+    # DewDrops workflow (Hearth/Dolt-backed)
+    # ──────────────────────────────────────────────────────────────────────
+    # These methods delegate to runtime.hearth_adapter, which owns the only
+    # MySQL connection in Butler. The adapter is imported lazily so missing
+    # pymysql doesn't break unrelated flows.
+
+    def list_active_workflow_runs(self, sprint_id: str | None = None, limit: int = 20) -> list[dict]:
+        from . import hearth_adapter
+        return hearth_adapter.list_active_workflow_runs(sprint_id=sprint_id, limit=limit)
+
+    def get_workflow_fleet(self, workflow_run_id: str) -> list[dict]:
+        from . import hearth_adapter
+        return hearth_adapter.get_workflow_fleet(workflow_run_id)
+
+    def get_workflow_findings(self, workflow_run_id: str, open_only: bool = True) -> list[dict]:
+        from . import hearth_adapter
+        return hearth_adapter.get_workflow_findings(workflow_run_id, open_only=open_only)
+
+    def start_workflow_run(
+        self,
+        workflow_id: str,
+        sprint_id: str | None = None,
+        roadmap_id: str | None = None,
+        task_id: str | None = None,
+        brief_document_id: str | None = None,
+        source_session_id: str | None = None,
+    ) -> dict:
+        from . import hearth_adapter
+        return hearth_adapter.start_workflow_run(
+            workflow_id=workflow_id,
+            sprint_id=sprint_id,
+            roadmap_id=roadmap_id,
+            task_id=task_id,
+            brief_document_id=brief_document_id,
+            source_session_id=source_session_id,
+        )
+
+    def emit_workflow_finding(
+        self,
+        workflow_run_id: str,
+        workflow_stage_id: str,
+        emitted_by_persona_slug: str,
+        severity: str,
+        verdict: str,
+        title: str,
+        body: str,
+        preserved_artifact_ids: list[str] | None = None,
+        implicates_artifact_ids: list[str] | None = None,
+        root_cause_hint: str | None = None,
+    ) -> dict:
+        from . import hearth_adapter
+        return hearth_adapter.emit_workflow_finding(
+            workflow_run_id=workflow_run_id,
+            workflow_stage_id=workflow_stage_id,
+            emitted_by_persona_slug=emitted_by_persona_slug,
+            severity=severity,
+            verdict=verdict,
+            title=title,
+            body=body,
+            preserved_artifact_ids=preserved_artifact_ids,
+            implicates_artifact_ids=implicates_artifact_ids,
+            root_cause_hint=root_cause_hint,
+        )
+
+    def advance_workflow_stage(
+        self,
+        workflow_run_id: str,
+        actor_persona_slug: str,
+        note: str | None = None,
+    ) -> dict:
+        from . import hearth_adapter
+        return hearth_adapter.advance_workflow_stage(
+            workflow_run_id=workflow_run_id,
+            actor_persona_slug=actor_persona_slug,
+            note=note,
+        )
+
+    def pin_persona_to_run(
+        self,
+        workflow_run_id: str,
+        workflow_stage_id: str,
+        persona_slug: str,
+        authority: str,
+        pilot_pinned: bool,
+        selected_basis: str | None = None,
+    ) -> dict:
+        from . import hearth_adapter
+        return hearth_adapter.pin_persona_to_run(
+            workflow_run_id=workflow_run_id,
+            workflow_stage_id=workflow_stage_id,
+            persona_slug=persona_slug,
+            authority=authority,
+            pilot_pinned=pilot_pinned,
+            selected_basis=selected_basis,
+        )
+
 
 def get_default_runtime(base_dir: str | Path = DEFAULT_RUNTIME_DIR) -> ButlerRuntime:
     """Return a process-global ButlerRuntime instance."""
