@@ -1,0 +1,11 @@
+# Hearth workspace standard pre-commit config.
+# Source of truth: D:/Users/Dan/.claude/hooks/pre-commit-config.yaml.template
+# Updated by: rollout script; do not edit per-repo unless you know what you're doing.
+# Tier policy: applies to every repo with `tier: public` in its .tier file.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        name: gitleaks (scan staged for secrets)
+        stages: [pre-commit]
